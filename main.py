@@ -37,6 +37,6 @@ for image in images:
             cv2.drawContours(im, [shape], -1, (0, 255, 0), 3)
             cv2.putText(im, "Prisoska", (x_cor, y_cor), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255))
     cv2.imwrite(f'C:/Users/ifade/Desktop/Image/halogen/test.png', im)
-    viewImage(im, 'With soska')
+    viewImage(im, 'With prisoska')
     break
     #cv2.waitKey(0)
