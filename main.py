@@ -2,29 +2,70 @@ import sys
 import cv2
 import os
 import numpy as np
+
 np.set_printoptions(threshold=sys.maxsize)
 
 
 # функция для просмотра изображения
-def viewImage(imagi, name_of_window):
-    #resized_image = cv2.resize(image, (width, height))
+def viewImage(image_for_view, name_of_window):
     cv2.namedWindow(name_of_window, cv2.WINDOW_AUTOSIZE)
-    cv2.imshow(name_of_window, imagi)
+    cv2.imshow(name_of_window, image_for_view)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
 
-# переходим в рабочую директорию
-os.chdir(f'R:\Experiments\Image')
+# функция для определения УФ/синего в паре кадров
+def UF_or_blue(frame_1, frame_2):
+    if np.sum(frame_2) / np.sum(frame_1) > 1:
+        frame_uv = frame_2
+        frame_blue = frame_1
+        frame_1_UV = False
+    else:
+        frame_uv = frame_1
+        frame_blue = frame_2
+        frame_1_UV = True
+    return frame_uv, frame_blue, frame_1_UV
 
-# получаем массив изображений в папке
-images = os.listdir()
 
-# парсим картинки
-for image in images:
-    # получаем изображение в виде оттенков серого
-    im = cv2.imread(image, cv2.IMREAD_GRAYSCALE)
-    im_crop = im[200:900, 200:800]
+def soska_detection(image_for_detection):
+    # выделение порога
+    retval, image_with_porog = cv2.threshold(image_for_detection, 254, 255, 3)
+    # viewImage(image_with_porog, 'thresh')
+
+    # параметры точности поиска кругов
+    a = 100
+    b = 100
+    # максимально и минимально возможные радиусы искомого круга
+    max_radius = 0
+    min_radius = 0
+
+    circles = cv2.HoughCircles(cv2.medianBlur(image_with_porog, 5), cv2.HOUGH_GRADIENT, 1, 100,
+                               param1=a, param2=b, minRadius=min_radius, maxRadius=max_radius)
+    # подбираем максимально возможные параметры точности
+    while circles is None:
+        circles = cv2.HoughCircles(cv2.medianBlur(image_with_porog, 5), cv2.HOUGH_GRADIENT, 1, 100,
+                                   param1=a, param2=b, minRadius=min_radius, maxRadius=max_radius)
+        a -= 1
+        b -= 1
+    # если нашли круги, то нам нужен только с максимальным радиусом
+    if circles is not None:
+        circles = np.uint16(np.around(circles))
+        # Находим круг с максимальным радиусом
+        largest_circle = max(circles[0, :], key=lambda x: x[2])
+        # записываем его координаты и радиус
+        center_of_largest_circle = (largest_circle[0], largest_circle[1])
+        radius_of_largest_circle = largest_circle[2]
+        # рисование круга на картинке
+        # cv2.circle(image_for_detection, center_of_largest_circle, radius_of_largest_circle, (0, 0, 255), 3)
+        # viewImage(image_for_detection, 'with circle')
+        return center_of_largest_circle, radius_of_largest_circle
+    else:
+        print('Круг найти не удалось')
+
+
+# определение контуров(в этом случае, кругов)
+def detection_contours(image_for_contours):
+    im_crop = image_for_contours
     # выставляем порог по интенсивности
     retval, im_porog = cv2.threshold(im_crop, 250, 255, 1)
     viewImage(im_porog, 'gray with porog')
@@ -38,7 +79,45 @@ for image in images:
         if len(shape) > 30:
             cv2.drawContours(im_crop, [shape], -1, (0, 255, 0), 3)
             cv2.putText(im_crop, "Prisoska", (x_cor, y_cor), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255))
-    cv2.imwrite(f'C:/Users/ifade/Desktop/Image/halogen/test.png', im)
-    viewImage(im, 'With prisoska')
-    break
-    #cv2.waitKey(0)
+
+
+# переходим в рабочую директорию
+images_directory = f'R:/Experiments/Image/'
+os.chdir(images_directory)
+
+# получаем массив изображений в папке
+images = os.listdir()
+
+# найдём первый кадр в УФ (frame_1_UV_check проверяет, что первый кадр в массиве является УФ)
+frame_UV, frame_BLue, frame_1_UV_check = UF_or_blue(cv2.imread(images[0], cv2.IMREAD_GRAYSCALE),
+                                                    cv2.imread(images[1], cv2.IMREAD_GRAYSCALE))
+
+# сделаем срезы кадров УФ и синего
+if frame_1_UV_check:
+    slice_UV = images[::2]
+    slice_blue = images[1::2]
+else:
+    slice_UV = images[1::2]
+    slice_blue = images[::2]
+
+# получим центр и радиус линзы присоски
+center, radius = soska_detection(frame_UV)
+
+# создадим директорию обработки
+analyze_directory_name = 'Обработка/'
+os.makedirs(analyze_directory_name, exist_ok=True)    # exist_ok=True предотвращает ошибку, если папка уже существует
+
+for i in range(1, int((len(images)-1)/2)+1):
+    frameuv = cv2.imread(slice_UV[i-1], cv2.IMREAD_GRAYSCALE)
+    framebl = cv2.imread(slice_blue[i-1], cv2.IMREAD_GRAYSCALE)
+    frameuv_crop = frameuv[center[0] - int(0.5 * radius):center[0] + int(0.5 * radius),
+                           center[1] - int(0.5 * radius):center[1] + int(0.5 * radius)]
+    framebl_crop = framebl[center[0] - int(0.5 * radius):center[0] + int(0.5 * radius),
+                           center[1] - int(0.5 * radius):center[1] + int(0.5 * radius)]
+    frame_ratio = np.clip(framebl_crop / frameuv_crop).astype(np.uint16)
+    full_path = os.path.join(images_directory, analyze_directory_name, f'{i}.tif')  # Соединяем имя папки и имя файла
+    check_write = cv2.imwrite(f'C:/Users/ifade/Desktop/{i}.tif', frame_ratio)
+    if check_write:
+        print('Всё супер')
+    else:
+        print('Не записал')
