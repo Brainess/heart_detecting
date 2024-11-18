@@ -126,19 +126,31 @@ center, radius = soska_detection(frame_UV)  # первая итерация
 # center, radius = soska_detection(frame_UV)  # вторая итерация
 
 n = 0.5    # множитель радиуса
-for i in range(1, int((len(images))/2)+1):
-    shutil.copy(slice_UV[i-1], uv_dir)
-    frameuv = cv2.imread(slice_UV[i-1], cv2.IMREAD_GRAYSCALE)
-    shutil.copy(slice_blue[i - 1], blue_dir)
-    framebl = cv2.imread(slice_blue[i-1], cv2.IMREAD_GRAYSCALE)
-    frameuv_crop = frameuv[center[0] - int(n * radius):center[0] + int(n * radius),
-                           center[1] - int(n * radius):center[1] + int(n * radius)]
-    framebl_crop = framebl[center[0] - int(n * radius):center[0] + int(n * radius),
-                           center[1] - int(n * radius):center[1] + int(n * radius)]
-    frame_ratio = np.clip(framebl_crop / frameuv_crop).astype(np.float32)
+
+for i in range(0, int(len(images)/2), 5):
+    images_uv = []
+    images_blue = []
+
+    # берём m-е усреднение
+    for m in range(i, i+5):
+        #   UV
+        shutil.copy(slice_UV[m], uv_dir)
+        images_uv.append(cv2.imread(slice_UV[m], cv2.IMREAD_GRAYSCALE)
+                         [center[0] - int(n * radius):center[0] + int(n * radius),
+                          center[1] - int(n * radius):center[1] + int(n * radius)])
+        #   Blue
+        shutil.copy(slice_blue[m], blue_dir)
+        images_blue.append(cv2.imread(slice_blue[m], cv2.IMREAD_GRAYSCALE)
+                           [center[0] - int(n * radius):center[0] + int(n * radius),
+                            center[1] - int(n * radius):center[1] + int(n * radius)])
+
+    mean_uv = np.mean(images_uv, axis=0).astype(np.float32)
+    mean_blue = np.mean(images_blue, axis=0).astype(np.float32)
+
+    frame_ratio = np.clip(mean_blue / mean_uv).astype(np.float32)
     os.chdir(ratio_dir)
     try:
-        check_write = cv2.imwrite(f'{i}.tif', frame_ratio)
+        check_write = cv2.imwrite(f'{i+5}.tif', frame_ratio)
     except:
         print('Проблемы с записью:')
         raise
