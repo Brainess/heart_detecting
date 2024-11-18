@@ -1,3 +1,4 @@
+import shutil
 import sys
 import cv2
 import os
@@ -39,11 +40,11 @@ def soska_detection(image_for_detection):
     max_radius = 0
     min_radius = 0
 
-    circles = cv2.HoughCircles(cv2.medianBlur(image_with_porog, 5), cv2.HOUGH_GRADIENT, 1, 100,
+    circles = cv2.HoughCircles(cv2.medianBlur(image_with_porog, 5), cv2.HOUGH_GRADIENT, 1, 1,
                                param1=a, param2=b, minRadius=min_radius, maxRadius=max_radius)
     # подбираем максимально возможные параметры точности
     while circles is None:
-        circles = cv2.HoughCircles(cv2.medianBlur(image_with_porog, 5), cv2.HOUGH_GRADIENT, 1, 100,
+        circles = cv2.HoughCircles(cv2.medianBlur(image_with_porog, 5), cv2.HOUGH_GRADIENT, 1, 1,
                                    param1=a, param2=b, minRadius=min_radius, maxRadius=max_radius)
         a -= 1
         b -= 1
@@ -82,8 +83,21 @@ def detection_contours(image_for_contours):
 
 
 # переходим в рабочую директорию
-images_directory = f'R:/Experiments/Image/'
+images_directory = f'R:/Experiments/Image'
 os.chdir(images_directory)
+
+# создадим директории обработки
+os.makedirs('Blue', exist_ok=True)  # exist_ok=True предотвращает ошибку, если папка уже существует
+blue_dir = 'R:/Experiments/Image/Blue'
+os.makedirs('UV', exist_ok=True)
+uv_dir = 'R:/Experiments/Image/UV'
+os.makedirs('Mean_Ratio', exist_ok=True)
+ratio_dir = 'R:/Experiments/Image/Mean_Ratio'
+os.makedirs('Raw', exist_ok=True)
+raw_dir = 'R:/Experiments/Image/Raw'
+
+# перейдём в папку с кадрами
+os.chdir(raw_dir)
 
 # получаем массив изображений в папке
 images = os.listdir()
@@ -91,6 +105,7 @@ images = os.listdir()
 # найдём первый кадр в УФ (frame_1_UV_check проверяет, что первый кадр в массиве является УФ)
 frame_UV, frame_BLue, frame_1_UV_check = UF_or_blue(cv2.imread(images[0], cv2.IMREAD_GRAYSCALE),
                                                     cv2.imread(images[1], cv2.IMREAD_GRAYSCALE))
+
 
 # сделаем срезы кадров УФ и синего
 if frame_1_UV_check:
@@ -100,24 +115,31 @@ else:
     slice_UV = images[1::2]
     slice_blue = images[::2]
 
-# получим центр и радиус линзы присоски
-center, radius = soska_detection(frame_UV)
 
-# создадим директорию обработки
-analyze_directory_name = 'Обработка/'
-os.makedirs(analyze_directory_name, exist_ok=True)    # exist_ok=True предотвращает ошибку, если папка уже существует
+# получим центр и радиус отверстия присоски
+center, radius = soska_detection(frame_UV)  # первая итерация
+# # cv2.circle(frame_UV, center, radius, (0, 0, 255), 3)
+# # viewImage(frame_UV, 'with circle')
+# n = 1.5   # множитель для радиуса
+# frame_UV = frame_UV[center1[0] - int(n * radius1):center1[0] + int(n * radius1),
+#                     center1[1] - int(n * radius1):center1[1] + int(n * radius1)]
+# center, radius = soska_detection(frame_UV)  # вторая итерация
 
-for i in range(1, int((len(images)-1)/2)+1):
+n = 0.5    # множитель радиуса
+for i in range(1, int((len(images))/2)+1):
+    shutil.copy(slice_UV[i-1], uv_dir)
     frameuv = cv2.imread(slice_UV[i-1], cv2.IMREAD_GRAYSCALE)
+    shutil.copy(slice_blue[i - 1], blue_dir)
     framebl = cv2.imread(slice_blue[i-1], cv2.IMREAD_GRAYSCALE)
-    frameuv_crop = frameuv[center[0] - int(0.5 * radius):center[0] + int(0.5 * radius),
-                           center[1] - int(0.5 * radius):center[1] + int(0.5 * radius)]
-    framebl_crop = framebl[center[0] - int(0.5 * radius):center[0] + int(0.5 * radius),
-                           center[1] - int(0.5 * radius):center[1] + int(0.5 * radius)]
-    frame_ratio = np.clip(framebl_crop / frameuv_crop).astype(np.uint16)
-    full_path = os.path.join(images_directory, analyze_directory_name, f'{i}.tif')  # Соединяем имя папки и имя файла
-    check_write = cv2.imwrite(f'C:/Users/ifade/Desktop/{i}.tif', frame_ratio)
-    if check_write:
-        print('Всё супер')
-    else:
-        print('Не записал')
+    frameuv_crop = frameuv[center[0] - int(n * radius):center[0] + int(n * radius),
+                           center[1] - int(n * radius):center[1] + int(n * radius)]
+    framebl_crop = framebl[center[0] - int(n * radius):center[0] + int(n * radius),
+                           center[1] - int(n * radius):center[1] + int(n * radius)]
+    frame_ratio = np.clip(framebl_crop / frameuv_crop).astype(np.float32)
+    os.chdir(ratio_dir)
+    try:
+        check_write = cv2.imwrite(f'{i}.tif', frame_ratio)
+    except:
+        print('Проблемы с записью:')
+        raise
+    os.chdir(raw_dir)
